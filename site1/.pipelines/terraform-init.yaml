@@ -1,0 +1,27 @@
+parameters:
+  displayName: 'Terraform Init'
+  backendServiceArm: 's2s-azure-rm-service-connection'
+
+steps:
+  - task: TerraformInstaller@1
+    displayName: 'Install Terraform'
+    inputs:
+      terraformVersion: 'latest'
+
+  # - script: |
+  #     git config --global url."https://${BITBUCKET_USERNAME}:${BITBUCKET_APP_PASSWORD}@bitbucket.org/".insteadOf "https://bitbucket.org/"
+  #   displayName: 'Inject Bitbucket Credentials into Git Config'
+  #   env:
+  #     BITBUCKET_USERNAME: $(BITBUCKET_USERNAME)
+  #     BITBUCKET_APP_PASSWORD: $(BITBUCKET_APP_PASSWORD)
+
+  - task: TerraformTaskV4@4
+    displayName: ${{ parameters.displayName }}
+    inputs:
+      provider: 'azurerm'
+      command: 'init'
+      backendServiceArm: ${{ parameters.backendServiceArm }}
+      backendAzureRmResourceGroupName: 'terraformstorage-rg'
+      backendAzureRmStorageAccountName: 'haritstorageaccount'
+      backendAzureRmContainerName: 'tfstate'
+      backendAzureRmKey: 'vnet-a.terraform.tfstate'

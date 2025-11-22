@@ -1,0 +1,241 @@
+trigger:
+  branches:
+    include:
+      - '*'  
+
+pr:
+  branches:
+    include:
+      - main  
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: destroy_initiate
+    value: 'true'
+
+# -------------------------------
+# Stage 1: Site A main.tf
+# -------------------------------
+- stage: SiteA_Main
+  displayName: 'Site A - Deploy Main Resources'
+  jobs:
+    - job: SiteA_Init
+      displayName: 'Terraform Init'
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'init'
+            workingDirectory: './pipeline-site-a'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+
+    - job: SiteA_Validate
+      displayName: 'Terraform Validate'
+      dependsOn: SiteA_Init
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'validate'
+            workingDirectory: './pipeline-site-a'
+
+    - job: SiteA_Plan
+      displayName: 'Terraform Plan'
+      dependsOn: SiteA_Validate
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'plan'
+            workingDirectory: './pipeline-site-a'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+            args: '-out=tfplan'
+
+    - job: SiteA_Apply
+      displayName: 'Terraform Apply'
+      dependsOn: SiteA_Plan
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'apply'
+            workingDirectory: './pipeline-site-a'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+            args: 'tfplan -auto-approve'
+
+        # Capture outputs
+        - script: |
+            gwA_ip=$(terraform output -raw gwA_public_ip)
+            echo "##vso[task.setvariable variable=gwA_public_ip;isOutput=true]$gwA_ip"
+            vpngw_a_id=$(terraform output -raw vpngw_a_id)
+            echo "##vso[task.setvariable variable=vpngw_a_id;isOutput=true]$vpngw_a_id"
+
+# -------------------------------
+# Stage 2: Site B main.tf
+# -------------------------------
+- stage: SiteB_Main
+  displayName: 'Site B - Deploy Main Resources'
+  dependsOn: SiteA_Main
+  jobs:
+    - job: SiteB_Init
+      displayName: 'Terraform Init'
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'init'
+            workingDirectory: './pipeline-site-b'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+
+    - job: SiteB_Validate
+      displayName: 'Terraform Validate'
+      dependsOn: SiteB_Init
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'validate'
+            workingDirectory: './pipeline-site-b'
+
+    - job: SiteB_Plan
+      displayName: 'Terraform Plan'
+      dependsOn: SiteB_Validate
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'plan'
+            workingDirectory: './pipeline-site-b'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+            args: '-out=tfplan'
+
+    - job: SiteB_Apply
+      displayName: 'Terraform Apply'
+      dependsOn: SiteB_Plan
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'apply'
+            workingDirectory: './pipeline-site-b'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+            args: 'tfplan -auto-approve'
+
+        # Capture outputs
+        - script: |
+            gwB_ip=$(terraform output -raw gwB_public_ip)
+            echo "##vso[task.setvariable variable=gwB_public_ip;isOutput=true]$gwB_ip"
+            vpngw_b_id=$(terraform output -raw vpngw_b_id)
+            echo "##vso[task.setvariable variable=vpngw_b_id;isOutput=true]$vpngw_b_id"
+
+# -------------------------------
+# Stage 3: Site A connection.tf
+# -------------------------------
+- stage: SiteA_Connection
+  displayName: 'Site A - Deploy Connections'
+  dependsOn: SiteB_Main
+  jobs:
+    - job: SiteA_Connection_Init
+      displayName: 'Terraform Init'
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'init'
+            workingDirectory: './pipeline-site-a'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+
+    - job: SiteA_Connection_Validate
+      displayName: 'Terraform Validate'
+      dependsOn: SiteA_Connection_Init
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'validate'
+            workingDirectory: './pipeline-site-a'
+
+    - job: SiteA_Connection_Plan
+      displayName: 'Terraform Plan'
+      dependsOn: SiteA_Connection_Validate
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'plan'
+            workingDirectory: './pipeline-site-a'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+            args: >
+              -var "gwB_public_ip=$(gwB_public_ip)" 
+              -var "vpngw_a_id=$(vpngw_a_id)" 
+              -var "vpngw_b_id=$(vpngw_b_id)" 
+              -out=tfplan
+
+    - job: SiteA_Connection_Apply
+      displayName: 'Terraform Apply'
+      dependsOn: SiteA_Connection_Plan
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'apply'
+            workingDirectory: './pipeline-site-a'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+            args: 'tfplan -auto-approve'
+
+# -------------------------------
+# Stage 4: Site B connection.tf
+# -------------------------------
+- stage: SiteB_Connection
+  displayName: 'Site B - Deploy Connections'
+  dependsOn: SiteA_Connection
+  jobs:
+    - job: SiteB_Connection_Init
+      displayName: 'Terraform Init'
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'init'
+            workingDirectory: './pipeline-site-b'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+
+    - job: SiteB_Connection_Validate
+      displayName: 'Terraform Validate'
+      dependsOn: SiteB_Connection_Init
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'validate'
+            workingDirectory: './pipeline-site-b'
+
+    - job: SiteB_Connection_Plan
+      displayName: 'Terraform Plan'
+      dependsOn: SiteB_Connection_Validate
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'plan'
+            workingDirectory: './pipeline-site-b'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+            args: >
+              -var "gwA_public_ip=$(gwA_public_ip)" 
+              -var "vpngw_a_id=$(vpngw_a_id)" 
+              -var "vpngw_b_id=$(vpngw_b_id)" 
+              -out=tfplan
+
+    - job: SiteB_Connection_Apply
+      displayName: 'Terraform Apply'
+      dependsOn: SiteB_Connection_Plan
+      steps:
+        - checkout: self
+        - task: TerraformCLI@0
+          inputs:
+            command: 'apply'
+            workingDirectory: './pipeline-site-b'
+            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+            args: 'tfplan -auto-approve'

@@ -17,30 +17,30 @@ variables:
 
 stages:
 
-  - stage: SiteA_Main
-    displayName: 'Site A - Resource Creation'
+  - stage: Site1_Main
+    displayName: 'Site 1 - Resource Creation'
     jobs:
 
       # ------------------------ #
       # 1️⃣ Terraform Init
       # ------------------------ #
-      - job: SiteA_Init
-        displayName: 'Site A - Terraform Init'
+      - job: Site1_Init
+        displayName: 'Site 1 - Terraform Init'
         steps:
           - checkout: self
 
           - template: site1/.pipelines/templates/terraform-init.yaml
             parameters:
-              displayName: 'Terraform Init for Site A'
+              displayName: 'Terraform Init for Site 1'
               backendServiceArm: 'terraform-spn-akspipeline'
               workingDirectory: './site1'
 
       # ------------------------ #
       # 2️⃣ Terraform Validate
       # ------------------------ #
-      - job: SiteA_Validate
-        displayName: 'Site A - Terraform Validate'
-        dependsOn: SiteA_Init
+      - job: Site1_Validate
+        displayName: 'Site 1 - Terraform Validate'
+        dependsOn: Site1_Init
         condition: succeeded()
         steps:
           - checkout: self
@@ -62,9 +62,9 @@ stages:
       # ------------------------ #
       # 3️⃣ Terraform Plan
       # ------------------------ #
-      - job: SiteA_Plan
-        displayName: 'Site A - Terraform Plan'
-        dependsOn: SiteA_Validate
+      - job: Site1_Plan
+        displayName: 'Site 1 - Terraform Plan'
+        dependsOn: Site1_Validate
         condition: succeeded()
         steps:
           - checkout: self
@@ -87,9 +87,9 @@ stages:
       # ------------------------ #
       # 4️⃣ Terraform Apply (with output)
       # ------------------------ #
-      - deployment: SiteA_Apply
-        displayName: 'Site A - Terraform Apply'
-        dependsOn: SiteA_Plan
+      - deployment: Site1_Apply
+        displayName: 'Site 1 - Terraform Apply'
+        dependsOn: Site1_Plan
         environment: 'prod'
         condition: and(succeeded(), eq(variables['Build.SourceBranchName'], 'main'))
         strategy:
@@ -112,15 +112,16 @@ stages:
                     args: '-auto-approve tfplan'
 
                 - script: |
-                    cd pipeline-site-a
+                    cd site1
                     echo "Extracting Terraform Outputs..."
 
-                    gwA_ip=$(terraform output -raw gwA_public_ip)
-                    echo "##vso[task.setvariable variable=gwA_public_ip;isOutput=true]$gwA_ip"
+                    gw1_ip=$(terraform output -raw gwA_public_ip)
+                    echo "##vso[task.setvariable variable=gw1_public_ip;isOutput=true]$gw1_ip"
 
-                    vpngwA_id=$(terraform output -raw vpngw_a_id)
-                    echo "##vso[task.setvariable variable=vpngw_a_id;isOutput=true]$vpngwA_id"
+                    vpngw1_id=$(terraform output -raw vpngw_a_id)
+                    echo "##vso[task.setvariable variable=vpngw_1_id;isOutput=true]$vpngw1_id"
                   displayName: 'Export Terraform Outputs'
+
 
 
 # -------------------------------

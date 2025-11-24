@@ -122,65 +122,110 @@ stages:
                     echo "##vso[task.setvariable variable=vpngw_1_id;isOutput=true]$vpngw1_id"
                   displayName: 'Export Terraform Outputs'
 
+  - stage: Site2_Main
+    displayName: 'Site 2 - Resource Creation'
+    jobs:
 
+      # ------------------------ #
+      # 1️⃣ Terraform Init
+      # ------------------------ #
+      - job: Site2_Init
+        displayName: 'Site 2 - Terraform Init'
+        steps:
+          - checkout: self
+          - template: site2/.pipelines/templates/terraform-init.yaml
+            parameters:
+              displayName: 'Terraform Init for Site 2'
+              backendServiceArm: 'terraform-spn-site2pipeline'
+              workingDirectory: './site2'
 
-# -------------------------------
-# Stage 2: Site B main.tf
-# -------------------------------
-- stage: SiteB_Main
-  displayName: 'Site B - Deploy Main Resources'
-  dependsOn: SiteA_Main
-  jobs:
-    - job: SiteB_Init
-      displayName: 'Terraform Init'
-      steps:
-        - checkout: self
-        - task: TerraformCLI@0
-          inputs:
-            command: 'init'
-            workingDirectory: './pipeline-site-b'
-            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
+      # ------------------------ #
+      # 2️⃣ Terraform Validate
+      # ------------------------ #
+      - job: Site2_Validate
+        displayName: 'Site 2 - Terraform Validate'
+        dependsOn: Site2_Init
+        condition: succeeded()
+        steps:
+          - checkout: self
 
-    - job: SiteB_Validate
-      displayName: 'Terraform Validate'
-      dependsOn: SiteB_Init
-      steps:
-        - checkout: self
-        - task: TerraformCLI@0
-          inputs:
-            command: 'validate'
-            workingDirectory: './pipeline-site-b'
+          # Init before Validate
+          - template: site2/.pipelines/templates/terraform-init.yaml
+            parameters:
+              displayName: 'Terraform Init before Validate'
+              backendServiceArm: 'terraform-spn-site2pipeline'
+              workingDirectory: './site2'
 
-    - job: SiteB_Plan
-      displayName: 'Terraform Plan'
-      dependsOn: SiteB_Validate
-      steps:
-        - checkout: self
-        - task: TerraformCLI@0
-          inputs:
-            command: 'plan'
-            workingDirectory: './pipeline-site-b'
-            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
-            args: '-out=tfplan'
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Validate'
+            inputs:
+              provider: 'azurerm'
+              command: 'validate'
+              workingDirectory: './site2'
 
-    - job: SiteB_Apply
-      displayName: 'Terraform Apply'
-      dependsOn: SiteB_Plan
-      steps:
-        - checkout: self
-        - task: TerraformCLI@0
-          inputs:
-            command: 'apply'
-            workingDirectory: './pipeline-site-b'
-            environmentServiceNameAzureRM: 'terraform-spn-akspipeline'
-            args: 'tfplan -auto-approve'
+      # ------------------------ #
+      # 3️⃣ Terraform Plan
+      # ------------------------ #
+      - job: Site2_Plan
+        displayName: 'Site 2 - Terraform Plan'
+        dependsOn: Site2_Validate
+        condition: succeeded()
+        steps:
+          - checkout: self
 
-        # Capture outputs
-        - script: |
-            gwB_ip=$(terraform output -raw gwB_public_ip)
-            echo "##vso[task.setvariable variable=gwB_public_ip;isOutput=true]$gwB_ip"
-            vpngw_b_id=$(terraform output -raw vpngw_b_id)
-            echo "##vso[task.setvariable variable=vpngw_b_id;isOutput=true]$vpngw_b_id"
+          - template: site2/.pipelines/templates/terraform-init.yaml
+            parameters:
+              displayName: 'Terraform Init before Plan'
+              backendServiceArm: 'terraform-spn-site2pipeline'
+              workingDirectory: './site2'
+
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Plan'
+            inputs:
+              provider: 'azurerm'
+              command: 'plan'
+              workingDirectory: './site2'
+              environmentServiceNameAzureRM: 'terraform-spn-site2pipeline'
+              args: '-out=tfplan'
+
+      # ------------------------ #
+      # 4️⃣ Terraform Apply (with output)
+      # ------------------------ #
+      - deployment: Site2_Apply
+        displayName: 'Site 2 - Terraform Apply'
+        dependsOn: Site2_Plan
+        environment: 'prod'
+        condition: and(succeeded(), eq(variables['Build.SourceBranchName'], 'main'))
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: site2/.pipelines/templates/terraform-init.yaml
+                  parameters:
+                    displayName: 'Terraform Init before Apply'
+                    backendServiceArm: 'terraform-spn-site2pipeline'
+                    workingDirectory: './site2'
+
+                - task: TerraformTaskV4@4
+                  displayName: 'Terraform Apply'
+                  inputs:
+                    provider: 'azurerm'
+                    command: 'apply'
+                    workingDirectory: './site2'
+                    environmentServiceNameAzureRM: 'terraform-spn-site2pipeline'
+                    args: '-auto-approve tfplan'
+
+                - script: |
+                    cd site2
+                    echo "Extracting Terraform Outputs..."
+
+                    gw2_ip=$(terraform output -raw gwB_public_ip)
+                    echo "##vso[task.setvariable variable=gw2_public_ip;isOutput=true]$gw2_ip"
+
+                    vpngw2_id=$(terraform output -raw vpngw_b_id)
+                    echo "##vso[task.setvariable variable=vpngw_2_id;isOutput=true]$vpngw2_id"
+                  displayName: 'Export Terraform Outputs'
 
 # -------------------------------
 # Stage 3: Site A connection.tf
